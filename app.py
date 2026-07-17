@@ -62,7 +62,7 @@ Upload an image and generate captions using
 @st.cache_resource
 def load_all_models():
 
-    yolo_model = YOLO("yolov8m.pt")
+    yolo_model = YOLO("yolov8n.pt")
 
     resnet_model = ResNet50(
         weights="imagenet",
