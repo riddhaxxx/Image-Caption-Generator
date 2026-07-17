@@ -1,4 +1,7 @@
-import streamlit as st
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import JSONResponse
+import uvicorn
+
 import os
 import pickle
 import numpy as np
@@ -7,8 +10,6 @@ import tensorflow as tf
 from collections import Counter
 from PIL import Image
 import tempfile
-import matplotlib
-matplotlib.use("Agg")
 
 # -------------------------------
 # TensorFlow / Keras Imports
@@ -34,76 +35,38 @@ from tensorflow.keras.models import load_model
 # -------------------------------
 from ultralytics import YOLO
 
-# -------------------------------
-# Streamlit Page
-# -------------------------------
+# -------------------------------------------------
+# FastAPI App
+# -------------------------------------------------
 
-st.set_page_config(
-    page_title="AI Image Caption Generator",
-    page_icon="🖼️",
-    layout="wide"
+app = FastAPI(
+    title="Image Caption Generator API"
 )
 
-st.title("🖼️ AI Image Caption Generator")
+# -------------------------------------------------
+# Load Models Once
+# -------------------------------------------------
 
-st.write(
-    """
-Upload an image and generate captions using
+print("Loading models...")
 
-• YOLOv8
-• ResNet50
-• Hybrid LSTM
-• Beam Search
-"""
+yolo_model = YOLO("yolov8m.pt")
+
+resnet_model = ResNet50(
+    weights="imagenet",
+    include_top=False,
+    pooling="avg"
 )
 
-# -------------------------------
-# Load Models
-# -------------------------------
+with open("tokenizer.pkl", "rb") as f:
+    tokenizer = pickle.load(f)
 
-@st.cache_resource
-def load_all_models():
+lstm_model = load_model(
+    "caption_model.keras"
+)
 
-    yolo_model = YOLO("yolov8n.pt")
+MAX_LENGTH = 34
 
-    resnet_model = ResNet50(
-        weights="imagenet",
-        include_top=False,
-        pooling="avg"
-    )
-
-    with open("tokenizer.pkl","rb") as f:
-        tokenizer = pickle.load(f)
-
-    caption_model = load_model(
-        "caption_model.keras"
-    )
-
-    MAX_LENGTH = 34
-
-    return (
-        yolo_model,
-        resnet_model,
-        tokenizer,
-        caption_model,
-        MAX_LENGTH
-    )
-
-with st.spinner("Loading models..."):
-
-    (
-        yolo_model,
-        resnet_model,
-        tokenizer,
-        lstm_model,
-        MAX_LENGTH
-    ) = load_all_models()
-
-st.success("Models Loaded Successfully!")
-
-# -------------------------------
-# Feature Extraction
-# -------------------------------
+print("All models loaded successfully!")
 
 def extract_image_features(img_path):
 
@@ -522,116 +485,90 @@ def generate_caption_beam_search(
         best_seq = best_seq[:-1]
 
     return " ".join(best_seq).strip()
-  # -------------------------------------------------------
-# Streamlit Interface
+
+# -------------------------------------------------------
+# FastAPI Prediction Endpoint
 # -------------------------------------------------------
 
-uploaded_file = st.file_uploader(
-    "📤 Upload an Image",
-    type=["jpg", "jpeg", "png"]
-)
+@app.get("/")
+def home():
+    return {
+        "message": "AI Image Caption Generator API is Running!"
+    }
 
-if uploaded_file is not None:
 
-    st.image(
-        uploaded_file,
-        caption="Uploaded Image",
-        use_container_width=True
+@app.post("/predict")
+async def predict(file: UploadFile = File(...)):
+
+    temp_file = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".jpg"
     )
 
-    if st.button("🚀 Generate Caption"):
+    try:
 
-        with st.spinner("Generating Caption..."):
+        contents = await file.read()
 
-            # Save uploaded image temporarily
-            temp_file = tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".jpg"
-            )
+        temp_file.write(contents)
+        temp_file.close()
 
-            temp_file.write(uploaded_file.read())
-            temp_file.close()
+        (
+            img_feature,
+            yolo_results,
+            detected_classes
+        ) = extract_image_features(
+            temp_file.name
+        )
 
-            try:
+        caption = generate_caption_beam_search(
+            lstm_model,
+            tokenizer,
+            img_feature,
+            MAX_LENGTH,
+            detected_classes,
+            beam_width=5,
+            alpha=0.8
+        )
 
-                # Feature Extraction
-                (
-                    img_feature,
-                    yolo_results,
-                    detected_classes
-                ) = extract_image_features(
-                    temp_file.name
-                )
+        return JSONResponse(
+            {
+                "caption": caption.capitalize() + ".",
+                "objects": detected_classes
+            }
+        )
 
-                # Caption Generation
-                caption = generate_caption_beam_search(
-                    lstm_model,
-                    tokenizer,
-                    img_feature,
-                    MAX_LENGTH,
-                    detected_classes,
-                    beam_width=5,
-                    alpha=0.8
-                )
+    except Exception as e:
 
-                st.success("Caption Generated Successfully!")
+        return JSONResponse(
+            {
+                "error": str(e)
+            },
+            status_code=500
+        )
 
-                st.subheader("📝 Generated Caption")
+    finally:
 
-                st.write(caption.capitalize() + ".")
+        if os.path.exists(temp_file.name):
+            os.remove(temp_file.name)
 
-                st.subheader("🎯 Objects Detected")
-
-                if len(detected_classes) == 0:
-                    st.write("No objects detected.")
-
-                else:
-                    st.write(", ".join(detected_classes))
-
-                # Draw YOLO detections
-                plotted_img = yolo_results.plot()
-
-                plotted_img = cv2.cvtColor(
-                    plotted_img,
-                    cv2.COLOR_BGR2RGB
-                )
-
-                st.subheader("📸 Detection Result")
-
-                st.image(
-                    plotted_img,
-                    use_container_width=True
-                )
-
-            except Exception as e:
-
-                st.error(
-                    f"Error : {e}"
-                )
-
-            finally:
-
-                if os.path.exists(
-                    temp_file.name
-                ):
-                    os.remove(
-                        temp_file.name
-                    )
 
 # -------------------------------------------------------
-# Footer
+# Run API
 # -------------------------------------------------------
 
-st.markdown("---")
+if __name__ == "__main__":
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False
+    )
 
-st.markdown(
-    """
 Developed using
 
 - YOLOv8
 - ResNet50
 - TensorFlow LSTM
 - Beam Search
-- Streamlit
 """
 )
