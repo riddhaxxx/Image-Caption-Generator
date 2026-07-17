@@ -7,6 +7,8 @@ import tensorflow as tf
 from collections import Counter
 from PIL import Image
 import tempfile
+import matplotlib
+matplotlib.use("Agg")
 
 # -------------------------------
 # TensorFlow / Keras Imports
