@@ -1,3 +1,11 @@
+---
+title: Image Caption Generator
+emoji: 🖼️
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 8501
+---
 # Image-Caption-Generator
 
 This project generates image captions using a hybrid deep learning architecture combining:
