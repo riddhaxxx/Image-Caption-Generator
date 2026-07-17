@@ -46,6 +46,8 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+> **Note:** The YOLOv8 model weights (`yolov8m.pt`) are not included in this repository. Ultralytics will automatically download them over the internet the first time you run the app. Please ensure you have an active internet connection, otherwise the app will display an error.
+
 ## Model
 
 - YOLOv8m

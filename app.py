@@ -37,8 +37,11 @@ MAX_LENGTH = 34
 
 @st.cache_resource(show_spinner=False)
 def load_models():
-    # YOLO might download on the first run, so it takes time
-    yolo = YOLO("yolov8m.pt")
+    try:
+        yolo = YOLO("yolov8m.pt")
+    except Exception as e:
+        st.error(f"Failed to download or load YOLOv8 weights (yolov8m.pt). Please ensure you have internet access on the first run. Details: {e}")
+        st.stop()
     
     resnet = ResNet50(
         weights="imagenet",
